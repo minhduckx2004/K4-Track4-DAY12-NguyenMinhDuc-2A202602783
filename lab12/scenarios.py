@@ -10,7 +10,10 @@ def ttc(gap, closing):
     # TODO (Bước 2): hãy tự cài hàm này. Gợi ý:
     #   TTC = gap / closing khi closing > 0, ngược lại inf. Phải chạy được trên mảng numpy (dùng np.where,
     #   tránh chia cho 0).
-    raise NotImplementedError("TODO ttc: xem GUIDE.md, Bước 2")
+    gap, closing = np.asarray(gap), np.asarray(closing)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = np.where(closing > 0, gap / np.where(closing > 0, closing, 1), np.inf)
+    return float(result) if result.ndim == 0 else result
 
 
 def required_decel(gap, closing):
@@ -18,7 +21,10 @@ def required_decel(gap, closing):
     # TODO (Bước 2): hãy tự cài hàm này. Gợi ý:
     #   closing^2 / (2 * gap) khi closing > 0, ngược lại 0. Ví dụ của slide: gap 12 m, closing 5 m/s -> 1,04
     #   m/s^2.
-    raise NotImplementedError("TODO required_decel: xem GUIDE.md, Bước 2")
+    gap, closing = np.asarray(gap), np.asarray(closing)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = np.where((closing > 0) & (gap > 0), closing ** 2 / (2 * np.where(gap > 0, gap, 1)), 0.0)
+    return float(result) if result.ndim == 0 else result
 
 
 def unavoidable(gaps, dvs, t_react=0.0, b_max=C.B_MAX):
@@ -29,7 +35,9 @@ def unavoidable(gaps, dvs, t_react=0.0, b_max=C.B_MAX):
     #   phanh b_max cần dv^2 / (2 * b_max) để triệt tiêu tốc độ tiến gần. Bất khả thi khi gap nhỏ hơn tổng
     #   hai đoạn đó. Dùng np.meshgrid(gaps, dvs) để kết quả có shape (len(dvs), len(gaps)). Với dv = 0 phải
     #   luôn tránh được.
-    raise NotImplementedError("TODO unavoidable: xem GUIDE.md, Bước 2")
+    G, D = np.meshgrid(np.asarray(gaps, dtype=float), np.asarray(dvs, dtype=float))
+    required_gap = D * t_react + D ** 2 / (2 * b_max)
+    return (D > 0) & (G < required_gap)
 
 
 def mine_braking(logs, threshold=C.BRAKE_THRESHOLD, min_steps=5):
@@ -41,7 +49,28 @@ def mine_braking(logs, threshold=C.BRAKE_THRESHOLD, min_steps=5):
     #   đạo tối đa 1 sự kiện. Trả list dict có đúng các khoá: traj, onset_step, peak_decel (a nhỏ nhất trong
     #   chuỗi), gap_m (logs.gap[i, onset]), closing_m_s (logs.v_ego[i, onset] - logs.v_lead_s[i, onset]),
     #   ego_speed (logs.v_ego[i, onset]).
-    raise NotImplementedError("TODO mine_braking: xem GUIDE.md, Bước 2")
+    events = []
+    for i in range(len(logs.n)):
+        n = int(logs.n[i])
+        a = np.asarray(logs.a_lead[i, :n])
+        below = a < threshold
+        if min_steps <= 0 or below.size < min_steps:
+            continue
+        starts = np.flatnonzero(below & np.r_[True, ~below[:-1]])
+        onset = next((int(s) for s in starts if np.all(below[s:s + min_steps])), None)
+        if onset is None:
+            continue
+        end = onset
+        while end < n and below[end]:
+            end += 1
+        events.append({
+            "traj": int(i), "onset_step": onset,
+            "peak_decel": float(np.min(a[onset:end])),
+            "gap_m": float(logs.gap[i, onset]),
+            "closing_m_s": float(logs.v_ego[i, onset] - logs.v_lead_s[i, onset]),
+            "ego_speed": float(logs.v_ego[i, onset]),
+        })
+    return events
 
 
 def human_brake_limit(logs, q=0.1):
